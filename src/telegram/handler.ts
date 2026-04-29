@@ -31,6 +31,38 @@ function clampForTelegram(text: string): string {
   return text.slice(0, TELEGRAM_MAX_MESSAGE_CHARS - 1) + "…";
 }
 
+function markdownToTelegramHtml(text: string): string {
+  // HTML-escape raw text first so injected tags are the only markup.
+  let out = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Fenced code blocks (``` ... ```) — optional language tag stripped.
+  out = out.replace(/```(?:[^\n]*\n)?([\s\S]*?)```/g, (_, code) =>
+    `<pre><code>${code.trim()}</code></pre>`,
+  );
+
+  // Inline code.
+  out = out.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+
+  // Bold **text** and __text__.
+  out = out.replace(/\*\*(.+?)\*\*/gs, "<b>$1</b>");
+  out = out.replace(/__(.+?)__/gs, "<b>$1</b>");
+
+  // Italic *text* and _text_ (single delimiter, not crossing newlines).
+  out = out.replace(/\*([^*\n]+)\*/g, "<i>$1</i>");
+  out = out.replace(/_([^_\n]+)_/g, "<i>$1</i>");
+
+  // Strikethrough ~~text~~.
+  out = out.replace(/~~(.+?)~~/gs, "<s>$1</s>");
+
+  // ATX headings (# through ######) → bold line.
+  out = out.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+
+  return out;
+}
+
 function logError(label: string, err: unknown): void {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`[handler] ${label} failed: ${message}`);
@@ -113,7 +145,7 @@ export async function handleUpdate(
 
     const captured = placeholderId;
     editInFlight = editInFlight.then(() =>
-      deps.telegram.editMessageText(chatId, captured, snapshot).catch((err: unknown) => {
+      deps.telegram.editMessageText(chatId, captured, markdownToTelegramHtml(snapshot), { parse_mode: "HTML" }).catch((err: unknown) => {
         if (err instanceof TelegramApiError && err.errorCode === 429) {
           editingSuspended = true;
           console.warn(
@@ -166,9 +198,11 @@ async function sendFinal(
   placeholderId: number | null,
   text: string,
 ): Promise<void> {
+  const html = markdownToTelegramHtml(text);
+  const htmlOpts = { parse_mode: "HTML" as const };
   if (placeholderId !== null) {
     try {
-      await deps.telegram.editMessageText(chatId, placeholderId, text);
+      await deps.telegram.editMessageText(chatId, placeholderId, html, htmlOpts);
       return;
     } catch (err) {
       if (err instanceof TelegramApiError && err.errorCode === 429) {
@@ -183,5 +217,5 @@ async function sendFinal(
       }
     }
   }
-  await deps.telegram.sendMessage(chatId, text).catch((err) => logError("final sendMessage", err));
+  await deps.telegram.sendMessage(chatId, html, htmlOpts).catch((err) => logError("final sendMessage", err));
 }

@@ -1,0 +1,28 @@
+{
+  "name": "llm-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram AI agent powered by OpenRouter and Vercel AI SDK with extensible tools.",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@openrouter/ai-sdk-provider": "^0.4.5",
+    "ai": "^4.3.16",
+    "exa-js": "^1.5.13",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3"
+  }
+}

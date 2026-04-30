@@ -23,7 +23,7 @@ export const toolSchema = z.object({
     .min(4)
     .max(10)
     .optional()
-    .describe("Number of results to return (1-10). Defaults to 6."),
+    .describe("Number of results to return (1-10). Defaults to 5."),
 });
 
 export type WebSearchInput = z.infer<typeof toolSchema>;
@@ -90,6 +90,9 @@ export async function execute(input: WebSearchInput): Promise<string> {
       type: "auto",
       numResults,
       highlights: true,
+      livecrawl: "preferred",
+      summary: true,
+      filterEmptyResults: true,
     };
     if (isTimeRelative) {
       searchOptions.startPublishedDate = `${today}T00:00:00.000Z`;

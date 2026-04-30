@@ -1,3 +1,5 @@
+import { lexer, type Token, type Tokens } from "marked";
+
 import type { AgentCore } from "../agent/core.js";
 import type { SessionManager } from "../agent/session.js";
 import {
@@ -32,23 +34,121 @@ function clampForTelegram(text: string): string {
   return text.slice(0, TELEGRAM_MAX_MESSAGE_CHARS - 1) + "…";
 }
 
-export function markdownToTelegramHtml(text: string): string {
-  let out = text.replace(/【\d+†[^】]*】/g, "");
-  out = out.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  out = out.replace(
-    /```(?:[^\n]*\n)?([\s\S]*?)```/g,
-    (_, code) => `<pre><code>${code.trim()}</code></pre>`,
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function renderTokens(tokens: Token[]): string {
+  return tokens.map(renderToken).join("");
+}
+
+function renderToken(token: Token): string {
+  switch (token.type) {
+    // ── inline ──────────────────────────────────────────────────────────────
+    case "text":
+      return token.tokens ? renderTokens(token.tokens) : escapeHtml(token.text);
+    case "escape":
+      return escapeHtml(token.text);
+    case "strong":
+      return `<b>${renderTokens(token.tokens ?? [])}</b>`;
+    case "em":
+      return `<i>${renderTokens(token.tokens ?? [])}</i>`;
+    case "del":
+      return `<s>${renderTokens(token.tokens ?? [])}</s>`;
+    case "codespan":
+      return `<code>${escapeHtml(token.text)}</code>`;
+    case "link":
+      return `<a href="${escapeHtml(token.href)}">${renderTokens(token.tokens ?? [])}</a>`;
+    case "image":
+      return escapeHtml(token.text); // show alt text only
+    case "br":
+      return "\n";
+    case "tag":
+      return /^<br\s*\/?>$/i.test(token.text.trim()) ? "\n" : escapeHtml(token.text);
+
+    // ── block ────────────────────────────────────────────────────────────────
+    case "heading":
+      return `<b>${renderTokens(token.tokens ?? [])}</b>\n\n`;
+    case "paragraph":
+      return `${renderTokens(token.tokens ?? [])}\n`;
+    case "code":
+      return `<pre><code>${escapeHtml(token.text)}</code></pre>\n\n`;
+    case "blockquote": {
+      const inner = renderTokens(token.tokens ?? []).trim();
+      return (
+        inner
+          .split("\n")
+          .map((l) => (l ? `❝ ${l}` : ""))
+          .join("\n") + "\n\n"
+      );
+    }
+    case "list":
+      return renderList(token as Tokens.List) + "\n";
+    case "table":
+      return renderTable(token as Tokens.Table) + "\n";
+    case "hr":
+      return "───────────\n\n";
+    case "html":
+      return /^<br\s*\/?>$/i.test(token.text.trim()) ? "\n" : escapeHtml(token.text);
+    case "space":
+      return "";
+
+    default:
+      return "raw" in token ? escapeHtml((token as { raw: string }).raw) : "";
+  }
+}
+
+function renderList(token: Tokens.List, depth = 0): string {
+  const indent = "  ".repeat(depth);
+  return token.items
+    .map((item, i) => {
+      const prefix = token.ordered
+        ? `${(typeof token.start === "number" ? token.start : 1) + i}.`
+        : item.task
+          ? item.checked
+            ? "☑"
+            : "☐"
+          : "•";
+
+      const content = item.tokens
+        .map((t) =>
+          t.type === "list"
+            ? "\n" + renderList(t as Tokens.List, depth + 1)
+            : renderToken(t),
+        )
+        .join("")
+        .trim();
+
+      return `${indent}${prefix} ${content}`;
+    })
+    .join("\n");
+}
+
+function renderTable(token: Tokens.Table): string {
+  const headers = token.header.map((cell) => renderTokens(cell.tokens));
+  const rows = token.rows.map((row) =>
+    row.map((cell) => renderTokens(cell.tokens)),
   );
 
-  out = out.replace(/`([^`\n]+)`/g, "<code>$1</code>");
-  out = out.replace(/\*\*(.+?)\*\*/gs, "<b>$1</b>");
-  out = out.replace(/__(.+?)__/gs, "<b>$1</b>");
-  out = out.replace(/\*([^*\n]+)\*/g, "<i>$1</i>");
-  out = out.replace(/_([^_\n]+)_/g, "<i>$1</i>");
-  out = out.replace(/~~(.+?)~~/gs, "<s>$1</s>");
-  out = out.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
+  return rows
+    .map((cells) => {
+      const parts: string[] = [];
+      for (let i = 0; i < headers.length; i++) {
+        const val = (cells[i] ?? "").trim();
+        if (!val) continue;
+        parts.push(i === 0 ? `<b>${val}</b>` : `${headers[i]}: ${val}`);
+      }
+      return parts.join("\n");
+    })
+    .join("\n\n");
+}
 
-  return out;
+export function markdownToTelegramHtml(text: string): string {
+  const cleaned = text.replace(/【\d+†[^】]*】/g, "");
+  return renderTokens(lexer(cleaned)).trim();
 }
 
 function logError(label: string, err: unknown): void {

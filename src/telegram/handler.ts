@@ -7,15 +7,16 @@ import {
 } from "./client.js";
 
 const PLACEHOLDER_TEXT = "⏳ Thinking…";
-const SESSION_RESET_TEXT = "🔄 New conversation started (previous context cleared due to inactivity).";
+const SESSION_RESET_TEXT =
+  "🔄 New conversation started (previous context cleared due to inactivity).";
 const TYPING_INTERVAL_MS = 4_000;
 const EDIT_INTERVAL_MS = 3_500;
 const EDIT_CHAR_THRESHOLD = 200;
 const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
 
-// Telegram may append @BotName to commands in groups — stripped automatically.
-const COMMAND_MAP: Record<string, string> = {
-  "/giavang": "Giá vàng ngày hôm nay là bao nhiêu",
+export const COMMAND_MAP: Record<string, string> = {
+  "/giavang":
+    "Giá vàng ngày hôm nay là bao nhiêu, hãy tìm các bài báo được update vào hôm nay, không cần thiết phải vào trang chủ của tiệm vàng.",
   "/github": "Top 10 repo trên github ngày hôm nay",
 };
 
@@ -31,33 +32,20 @@ function clampForTelegram(text: string): string {
   return text.slice(0, TELEGRAM_MAX_MESSAGE_CHARS - 1) + "…";
 }
 
-function markdownToTelegramHtml(text: string): string {
-  // HTML-escape raw text first so injected tags are the only markup.
-  let out = text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-  // Fenced code blocks (``` ... ```) — optional language tag stripped.
-  out = out.replace(/```(?:[^\n]*\n)?([\s\S]*?)```/g, (_, code) =>
-    `<pre><code>${code.trim()}</code></pre>`,
+export function markdownToTelegramHtml(text: string): string {
+  let out = text.replace(/【\d+†[^】]*】/g, "");
+  out = out.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  out = out.replace(
+    /```(?:[^\n]*\n)?([\s\S]*?)```/g,
+    (_, code) => `<pre><code>${code.trim()}</code></pre>`,
   );
 
-  // Inline code.
   out = out.replace(/`([^`\n]+)`/g, "<code>$1</code>");
-
-  // Bold **text** and __text__.
   out = out.replace(/\*\*(.+?)\*\*/gs, "<b>$1</b>");
   out = out.replace(/__(.+?)__/gs, "<b>$1</b>");
-
-  // Italic *text* and _text_ (single delimiter, not crossing newlines).
   out = out.replace(/\*([^*\n]+)\*/g, "<i>$1</i>");
   out = out.replace(/_([^_\n]+)_/g, "<i>$1</i>");
-
-  // Strikethrough ~~text~~.
   out = out.replace(/~~(.+?)~~/gs, "<s>$1</s>");
-
-  // ATX headings (# through ######) → bold line.
   out = out.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>");
 
   return out;
@@ -112,7 +100,10 @@ export async function handleUpdate(
   // Send the placeholder message that will be progressively edited.
   let placeholderId: number | null = null;
   try {
-    const placeholder = await deps.telegram.sendMessage(chatId, PLACEHOLDER_TEXT);
+    const placeholder = await deps.telegram.sendMessage(
+      chatId,
+      PLACEHOLDER_TEXT,
+    );
     placeholderId = placeholder.message_id;
   } catch (err) {
     clearInterval(typingTimer);
@@ -136,7 +127,10 @@ export async function handleUpdate(
         (elapsed >= EDIT_INTERVAL_MS || charsSinceEdit >= EDIT_CHAR_THRESHOLD));
     if (!shouldEdit) return;
 
-    const snapshot = accumulated.length === 0 ? PLACEHOLDER_TEXT : clampForTelegram(accumulated);
+    const snapshot =
+      accumulated.length === 0
+        ? PLACEHOLDER_TEXT
+        : clampForTelegram(accumulated);
     if (snapshot === lastEditedText) return;
 
     lastEditAt = Date.now();
@@ -145,16 +139,20 @@ export async function handleUpdate(
 
     const captured = placeholderId;
     editInFlight = editInFlight.then(() =>
-      deps.telegram.editMessageText(chatId, captured, markdownToTelegramHtml(snapshot), { parse_mode: "HTML" }).catch((err: unknown) => {
-        if (err instanceof TelegramApiError && err.errorCode === 429) {
-          editingSuspended = true;
-          console.warn(
-            `[handler] Telegram rate limit hit (retry_after=${err.retryAfter ?? "?"}s); suspending intermediate edits.`,
-          );
-          return;
-        }
-        logError("edit message", err);
-      }),
+      deps.telegram
+        .editMessageText(chatId, captured, markdownToTelegramHtml(snapshot), {
+          parse_mode: "HTML",
+        })
+        .catch((err: unknown) => {
+          if (err instanceof TelegramApiError && err.errorCode === 429) {
+            editingSuspended = true;
+            console.warn(
+              `[handler] Telegram rate limit hit (retry_after=${err.retryAfter ?? "?"}s); suspending intermediate edits.`,
+            );
+            return;
+          }
+          logError("edit message", err);
+        }),
     );
   };
 
@@ -178,9 +176,15 @@ export async function handleUpdate(
   await editInFlight.catch(() => {});
 
   if (agentError !== null) {
-    const msg = agentError instanceof Error ? agentError.message : String(agentError);
+    const msg =
+      agentError instanceof Error ? agentError.message : String(agentError);
     console.error(`[handler] agent error for chat ${chatId}:`, agentError);
-    await sendFinal(deps, chatId, placeholderId, clampForTelegram(`Sorry — something went wrong:\n${msg}`));
+    await sendFinal(
+      deps,
+      chatId,
+      placeholderId,
+      clampForTelegram(`Sorry — something went wrong:\n${msg}`),
+    );
     return;
   }
 
@@ -202,7 +206,12 @@ async function sendFinal(
   const htmlOpts = { parse_mode: "HTML" as const };
   if (placeholderId !== null) {
     try {
-      await deps.telegram.editMessageText(chatId, placeholderId, html, htmlOpts);
+      await deps.telegram.editMessageText(
+        chatId,
+        placeholderId,
+        html,
+        htmlOpts,
+      );
       return;
     } catch (err) {
       if (err instanceof TelegramApiError && err.errorCode === 429) {
@@ -217,5 +226,7 @@ async function sendFinal(
       }
     }
   }
-  await deps.telegram.sendMessage(chatId, html, htmlOpts).catch((err) => logError("final sendMessage", err));
+  await deps.telegram
+    .sendMessage(chatId, html, htmlOpts)
+    .catch((err) => logError("final sendMessage", err));
 }

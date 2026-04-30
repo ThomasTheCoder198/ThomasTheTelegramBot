@@ -8,6 +8,7 @@ import {
 } from "./telegram/client.js";
 import { handleUpdate } from "./telegram/handler.js";
 import { createDefaultRegistry } from "./tools/registry.js";
+import { startScheduler } from "./scheduler.js";
 
 const POLLING_TIMEOUT_SECONDS = 25;
 const POLLING_RETRY_DELAY_MS = 5_000;
@@ -34,6 +35,15 @@ async function main(): Promise<void> {
     sessions,
     allowedUserIds: config.allowedUserIds,
   };
+
+  const userIds = [...config.allowedUserIds];
+  if (userIds.length !== 1) {
+    console.warn(
+      `[scheduler] expected exactly 1 allowed user for auto-scheduling, got ${userIds.length}; scheduler disabled.`,
+    );
+  } else {
+    startScheduler(telegram, agent, userIds[0], config.schedulerCron);
+  }
 
   let running = true;
   let offset: number | undefined;

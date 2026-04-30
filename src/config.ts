@@ -9,6 +9,7 @@ export interface AppConfig {
   exaApiKey: string;
   allowedUserIds: Set<number>;
   sessionTtlMinutes: number;
+  schedulerCron: string;
 }
 
 class ConfigError extends Error {
@@ -85,6 +86,8 @@ export function loadConfig(): AppConfig {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   const sessionTtlMinutes = parseSessionTtl(process.env.SESSION_TTL_MINUTES);
+  const schedulerCron =
+    (process.env.SCHEDULER_CRON ?? "").trim() || "0 1 * * *";
 
   return {
     telegramBotToken,
@@ -94,6 +97,7 @@ export function loadConfig(): AppConfig {
     exaApiKey,
     allowedUserIds,
     sessionTtlMinutes,
+    schedulerCron,
   };
 }
 

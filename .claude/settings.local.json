@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(rtk tsc *)"
+      "Bash(rtk tsc *)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.csgt.vn)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:vksndlaichau.gov.vn)",
+      "WebFetch(domain:e.vnexpress.net)",
+      "WebFetch(domain:www.postman.com)",
+      "WebFetch(domain:phatnguoi.app)"
     ]
   }
 }

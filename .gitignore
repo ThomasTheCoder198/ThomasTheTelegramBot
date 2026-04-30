@@ -10,3 +10,10 @@ coverage/
 *.tsbuildinfo
 
 openspec/
+
+CLAUDE.md
+
+*.md
+
+*.claude/
+

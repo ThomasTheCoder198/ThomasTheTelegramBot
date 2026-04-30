@@ -20,10 +20,10 @@ export const toolSchema = z.object({
   numResults: z
     .number()
     .int()
-    .min(1)
+    .min(4)
     .max(10)
     .optional()
-    .describe("Number of results to return (1-10). Defaults to 5."),
+    .describe("Number of results to return (1-10). Defaults to 6."),
 });
 
 export type WebSearchInput = z.infer<typeof toolSchema>;
@@ -66,6 +66,9 @@ function formatResults(results: ExaResultLike[]): string {
   return lines.join("\n");
 }
 
+const TIME_RELATIVE_PATTERN =
+  /\b(hôm nay|today|tonight|hôm qua|yesterday|tuần này|this week|tháng này|this month|mới nhất|latest|hiện tại|current|now|ngay bây giờ)\b/i;
+
 export async function execute(input: WebSearchInput): Promise<string> {
   const numResults = input.numResults ?? 10;
   const query = input.query.trim();
@@ -74,14 +77,24 @@ export async function execute(input: WebSearchInput): Promise<string> {
     return "Web search error: query is empty.";
   }
 
-  console.log(`[web_search] query="${query}" numResults=${numResults}`);
+  const today = new Date().toISOString().slice(0, 10);
+  const isTimeRelative = TIME_RELATIVE_PATTERN.test(query);
+  const enrichedQuery = isTimeRelative ? `${query} ${today}` : query;
+
+  console.log(
+    `[web_search] query="${enrichedQuery}" numResults=${numResults} dateFiltered=${isTimeRelative}`,
+  );
   try {
     const exa = getExaClient();
-    const response = await exa.searchAndContents(query, {
+    const searchOptions: Parameters<typeof exa.searchAndContents>[1] = {
       type: "auto",
       numResults,
       highlights: true,
-    });
+    };
+    if (isTimeRelative) {
+      searchOptions.startPublishedDate = `${today}T00:00:00.000Z`;
+    }
+    const response = await exa.searchAndContents(enrichedQuery, searchOptions);
     const results = (response.results ?? []) as ExaResultLike[];
     console.log(`[web_search] got ${results.length} result(s)`);
     return formatResults(results);

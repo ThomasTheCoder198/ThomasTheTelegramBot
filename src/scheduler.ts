@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import type { AgentCore } from "./agent/core.js";
 import type { TelegramClient } from "./telegram/client.js";
-import { COMMAND_MAP, markdownToTelegramHtml } from "./telegram/handler.js";
+import { buildCommandText, markdownToTelegramHtml } from "./telegram/handler.js";
 
 const SCHEDULED_COMMANDS = ["/briefing"] as const;
 const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
@@ -13,7 +13,7 @@ export async function runScheduledCommands(
 ): Promise<void> {
   console.info("[scheduler] firing scheduled commands");
   for (const command of SCHEDULED_COMMANDS) {
-    const prompt = COMMAND_MAP[command];
+    const prompt = buildCommandText(command);
     if (prompt === undefined) continue;
     try {
       void telegram.sendChatAction(chatId, "typing").catch(() => {});

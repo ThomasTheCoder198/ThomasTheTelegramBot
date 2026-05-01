@@ -91,7 +91,6 @@ export async function execute(input: WebSearchInput): Promise<string> {
       numResults,
       highlights: true,
       livecrawl: "preferred",
-      summary: true,
       filterEmptyResults: true,
     };
     if (isTimeRelative) {

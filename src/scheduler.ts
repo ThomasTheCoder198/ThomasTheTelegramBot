@@ -3,7 +3,7 @@ import type { AgentCore } from "./agent/core.js";
 import type { TelegramClient } from "./telegram/client.js";
 import { COMMAND_MAP, markdownToTelegramHtml } from "./telegram/handler.js";
 
-const SCHEDULED_COMMANDS = ["/giavang", "/github"] as const;
+const SCHEDULED_COMMANDS = ["/briefing"] as const;
 const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
 
 export async function runScheduledCommands(

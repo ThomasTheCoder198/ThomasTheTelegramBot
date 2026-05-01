@@ -20,6 +20,8 @@ export const COMMAND_MAP: Record<string, string> = {
   "/giavang":
     "Giá vàng ngày hôm nay là bao nhiêu, hãy tìm các bài báo được update vào hôm nay, không cần thiết phải vào trang chủ của tiệm vàng.",
   "/github": "Top 10 repo trên github ngày hôm nay",
+  "/briefing":
+    "Tổng hợp bản tin buổi sáng hôm nay gửi cho tôi. Bao gồm:\n1. Thời tiết Hà Nội hôm nay (nếu có thể)\n2. Giá vàng ngày hôm nay (tìm bài báo update hôm nay, không cần vào trang chủ tiệm vàng)\n3. Top GitHub trending hôm nay\n4. Tin tức nổi bật hôm nay\n\nTrình bày ngắn gọn, mỗi mục 2-3 dòng. Dùng emoji phù hợp.",
 };
 
 export interface HandlerDeps {

@@ -1,5 +1,6 @@
 const DEFAULT_OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
 const DEFAULT_SESSION_TTL_MINUTES = 10;
+const DEFAULT_GCHAT_OAUTH_PORT = 4085;
 
 export interface AppConfig {
   telegramBotToken: string;
@@ -10,6 +11,9 @@ export interface AppConfig {
   allowedUserIds: Set<number>;
   sessionTtlMinutes: number;
   schedulerCron: string;
+  googleClientId: string | undefined;
+  googleClientSecret: string | undefined;
+  gchatOAuthPort: number;
 }
 
 class ConfigError extends Error {
@@ -89,6 +93,23 @@ export function loadConfig(): AppConfig {
   const schedulerCron =
     (process.env.SCHEDULER_CRON ?? "").trim() || "0 1 * * *";
 
+  const googleClientId =
+    (process.env.GOOGLE_CLIENT_ID ?? "").trim() || undefined;
+  const googleClientSecret =
+    (process.env.GOOGLE_CLIENT_SECRET ?? "").trim() || undefined;
+
+  const rawPort = (process.env.GCHAT_OAUTH_PORT ?? "").trim();
+  let gchatOAuthPort = DEFAULT_GCHAT_OAUTH_PORT;
+  if (rawPort.length > 0) {
+    const parsed = Number(rawPort);
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 65535) {
+      throw new ConfigError(
+        `GCHAT_OAUTH_PORT must be an integer between 1 and 65535; got "${rawPort}".`,
+      );
+    }
+    gchatOAuthPort = parsed;
+  }
+
   return {
     telegramBotToken,
     openrouterApiKey,
@@ -98,6 +119,9 @@ export function loadConfig(): AppConfig {
     allowedUserIds,
     sessionTtlMinutes,
     schedulerCron,
+    googleClientId,
+    googleClientSecret,
+    gchatOAuthPort,
   };
 }
 

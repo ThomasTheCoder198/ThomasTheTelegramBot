@@ -2,90 +2,26 @@ import { lexer, type Token, type Tokens } from "marked";
 
 import type { AgentCore } from "../agent/core.js";
 import type { SessionManager } from "../agent/session.js";
+import { TELEGRAM_MAX_MESSAGE_CHARS } from "../constants.js";
+import { loadGchatState, startGchatAuthFlow } from "../gchat/auth.js";
+import {
+  buildCommandText,
+  GCHAT_NOT_CONNECTED_TEXT,
+  PLACEHOLDER_TEXT,
+  SESSION_RESET_TEXT,
+} from "../prompts.js";
+import { clampText, errorMessage } from "../utils.js";
 import {
   TelegramApiError,
   type TelegramClient,
   type TelegramUpdate,
 } from "./client.js";
 
-const PLACEHOLDER_TEXT = "⏳ Thinking…";
-const SESSION_RESET_TEXT =
-  "🔄 New conversation started (previous context cleared due to inactivity).";
+export { buildCommandText } from "../prompts.js";
+
 const TYPING_INTERVAL_MS = 4_000;
 const EDIT_INTERVAL_MS = 3_500;
 const EDIT_CHAR_THRESHOLD = 200;
-const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
-
-export function buildCommandText(command: string): string | undefined {
-  const today = new Date().toISOString().slice(0, 10);
-  const map: Record<string, string> = {
-    "/giavang":
-      "Giá vàng ngày hôm nay là bao nhiêu, hãy tìm các bài báo được update vào hôm nay, không cần thiết phải vào trang chủ của tiệm vàng.",
-    "/github": "Top 10 repo trên github ngày hôm nay",
-    "/briefing": `Today's date: ${today}
-
-[character]
-role = "cat 🐈"
-response_mode = "ALWAYS provide immediate and complete responses based on current context without asking for clarification or confirmation"
-
-[tasks]
-
-[tasks.news]
-action = "Use web-search tools (minimum 5 searches)"
-target = "today's comprehensive news from official news websites in Vietnam"
-output = "report a list to your owner"
-execution = "Execute immediately without asking for confirmation"
-
-[tasks.weather]
-action = "Use the weather tool"
-target = "current weather and forecast for Hà Nội"
-output = "report for your owner"
-execution = "Execute immediately without asking for confirmation"
-
-[tasks.aqi]
-action = "Use web-search tools (minimum 1 search per city)"
-target = "current Air Quality Index (AQI) for major cities in Vietnam: Hà Nội, Đà Nẵng, Hồ Chí Minh"
-output = "report AQI levels and air quality status for each city with health recommendations"
-execution = "Execute immediately without asking for confirmation"
-
-[tasks.breakfast_suggestion]
-action = "Based on weather information obtained from tasks.weather"
-target = "Vietnamese breakfast dishes suitable for today's weather"
-suggestions = "pho, banh mi, bun bo, xoi, banh cuon, com tam, chao, banh xeo, etc."
-logic = "First check weather → then suggest appropriate dishes (hot soup for cold/rainy weather, lighter options for hot weather)"
-output = "recommend 3-5 breakfast options with explanations why they suit today's weather"
-execution = "Provide suggestions immediately based on available weather data"
-
-[tasks.tech_news]
-action = "Use web-search tools (minimum 5 searches)"
-target = "this week's technology news from HackerRank, github, x.com, blogs,..."
-output = "compile and report for your owner"
-execution = "Execute immediately without asking for confirmation"
-
-[tasks.github_trending]
-action = "Visit GitHub Trending (minimum 1 visit)"
-target = "today's trending projects"
-output = "report for your owner"
-execution = "Execute immediately without asking for confirmation"
-
-[tasks.quote_of_the_week]
-action = "Use web-search tools to visit This Week in Rust"
-target = "Quote of the Week + Crate of the Week from the latest issue"
-source = "https://this-week-in-rust.org (Automatically fetch the latest issues to retrieve information because the homepage does not have this information.)"
-output = "extract and present the Quote of the Week with attribution + Crate of the Week"
-execution = "Execute immediately without asking for confirmation"
-
-[language_settings]
-language = "Vietnamese"
-style = "first-person (cat POV) writing style"
-note = "ALWAYS respond in Vietnamese with a first-person (cat POV) writing style"
-
-[interaction_rules]
-mode = "Direct execution without confirmation"
-principle = "Always provide immediate responses based on current context without asking questions back to the user"`,
-  };
-  return map[command];
-}
 
 export interface HandlerDeps {
   telegram: TelegramClient;
@@ -94,16 +30,8 @@ export interface HandlerDeps {
   allowedUserIds: Set<number>;
 }
 
-function clampForTelegram(text: string): string {
-  if (text.length <= TELEGRAM_MAX_MESSAGE_CHARS) return text;
-  return text.slice(0, TELEGRAM_MAX_MESSAGE_CHARS - 1) + "…";
-}
-
 function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function renderTokens(tokens: Token[]): string {
@@ -132,7 +60,9 @@ function renderToken(token: Token): string {
     case "br":
       return "\n";
     case "tag":
-      return /^<br\s*\/?>$/i.test(token.text.trim()) ? "\n" : escapeHtml(token.text);
+      return /^<br\s*\/?>$/i.test(token.text.trim())
+        ? "\n"
+        : escapeHtml(token.text);
 
     // ── block ────────────────────────────────────────────────────────────────
     case "heading":
@@ -157,7 +87,9 @@ function renderToken(token: Token): string {
     case "hr":
       return "───────────\n\n";
     case "html":
-      return /^<br\s*\/?>$/i.test(token.text.trim()) ? "\n" : escapeHtml(token.text);
+      return /^<br\s*\/?>$/i.test(token.text.trim())
+        ? "\n"
+        : escapeHtml(token.text);
     case "space":
       return "";
 
@@ -217,8 +149,7 @@ export function markdownToTelegramHtml(text: string): string {
 }
 
 function logError(label: string, err: unknown): void {
-  const message = err instanceof Error ? err.message : String(err);
-  console.error(`[handler] ${label} failed: ${message}`);
+  console.error(`[handler] ${label} failed: ${errorMessage(err)}`);
 }
 
 export async function handleUpdate(
@@ -244,6 +175,25 @@ export async function handleUpdate(
 
   if (text.startsWith("/")) {
     const command = text.split(/\s+/)[0].replace(/@\S+$/, "").toLowerCase();
+    if (command === "/gchatauth") {
+      void startGchatAuthFlow(chatId, deps.telegram).catch((err) =>
+        logError("gchatauth", err),
+      );
+      return;
+    }
+    if (command.startsWith("/gchat")) {
+      const gchatState = await loadGchatState();
+      if (!gchatState.refreshToken) {
+        await deps.telegram
+          .sendMessage(
+            chatId,
+            GCHAT_NOT_CONNECTED_TEXT,
+          )
+          .catch((err) => logError("gchat auth guard", err));
+        return;
+      }
+    }
+
     const mapped = buildCommandText(command);
     if (mapped === undefined) return;
     text = mapped;
@@ -254,15 +204,12 @@ export async function handleUpdate(
       .sendMessage(chatId, SESSION_RESET_TEXT)
       .catch((err) => logError("session reset notice", err));
   }
-
-  // Typing indicator — fire immediately, then repeat every 4s until response is sent.
   const typingTimer = setInterval(() => {
     void deps.telegram.sendChatAction(chatId, "typing").catch(() => {});
   }, TYPING_INTERVAL_MS);
   typingTimer.unref();
   void deps.telegram.sendChatAction(chatId, "typing").catch(() => {});
 
-  // Send the placeholder message that will be progressively edited.
   let placeholderId: number | null = null;
   try {
     const placeholder = await deps.telegram.sendMessage(
@@ -295,7 +242,7 @@ export async function handleUpdate(
     const snapshot =
       accumulated.length === 0
         ? PLACEHOLDER_TEXT
-        : clampForTelegram(accumulated);
+        : clampText(accumulated, TELEGRAM_MAX_MESSAGE_CHARS);
     if (snapshot === lastEditedText) return;
 
     lastEditAt = Date.now();
@@ -341,21 +288,20 @@ export async function handleUpdate(
   await editInFlight.catch(() => {});
 
   if (agentError !== null) {
-    const msg =
-      agentError instanceof Error ? agentError.message : String(agentError);
+    const msg = errorMessage(agentError);
     console.error(`[handler] agent error for chat ${chatId}:`, agentError);
     await sendFinal(
       deps,
       chatId,
       placeholderId,
-      clampForTelegram(`Sorry — something went wrong:\n${msg}`),
+      clampText(`Sorry — something went wrong:\n${msg}`, TELEGRAM_MAX_MESSAGE_CHARS),
     );
     return;
   }
 
   const replyText =
     finalText.trim().length > 0
-      ? clampForTelegram(finalText.trim())
+      ? clampText(finalText.trim(), TELEGRAM_MAX_MESSAGE_CHARS)
       : "I do not have a response for that. Could you rephrase or try again?";
 
   await sendFinal(deps, chatId, placeholderId, replyText);
@@ -380,7 +326,6 @@ async function sendFinal(
       return;
     } catch (err) {
       if (err instanceof TelegramApiError && err.errorCode === 429) {
-        // Rate-limited — fall through to sendMessage.
       } else if (
         err instanceof TelegramApiError &&
         err.message.includes("message is not modified")

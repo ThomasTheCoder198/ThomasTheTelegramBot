@@ -2,6 +2,7 @@ import { AgentCore } from "./agent/core.js";
 import { SessionManager } from "./agent/session.js";
 import { config } from "./config.js";
 import { startScheduler } from "./scheduler.js";
+import { errorMessage } from "./utils.js";
 import {
   TelegramApiError,
   TelegramClient,
@@ -52,7 +53,7 @@ async function main(): Promise<void> {
         "edited_message",
       ]);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       if (err instanceof TelegramApiError && err.errorCode === 409) {
         console.error(
           `[poll] conflict: another getUpdates instance is active for this token. Retrying in ${POLLING_RETRY_DELAY_MS}ms.`,
@@ -70,7 +71,7 @@ async function main(): Promise<void> {
       try {
         await handleUpdate(handlerDeps, update);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         console.error(
           `[poll] handler crashed for update ${update.update_id}: ${message}`,
         );
@@ -106,7 +107,7 @@ function delay(ms: number): Promise<void> {
 }
 
 main().catch((err) => {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   console.error(`[fatal] ${message}`);
   if (err instanceof Error && err.stack) console.error(err.stack);
   process.exit(1);

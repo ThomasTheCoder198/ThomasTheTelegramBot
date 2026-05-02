@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { z, type ZodSchema } from "zod";
+import { errorMessage } from "../utils.js";
 
 export interface ToolPlugin {
   toolName: string;
@@ -38,7 +39,7 @@ export class ToolRegistry {
     try {
       entries = await fs.readdir(dir);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       console.warn(
         `[tool-registry] cannot read tools dir "${dir}": ${message}`,
       );
@@ -98,7 +99,7 @@ export class ToolRegistry {
         `[tool-registry] loaded tool "${candidate.toolName}" from ${path.basename(filePath)}`,
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       console.warn(`[tool-registry] failed to load "${filePath}": ${message}`);
     }
   }
@@ -121,7 +122,7 @@ export class ToolRegistry {
             if (err instanceof z.ZodError) {
               return `Tool "${plugin.toolName}" received invalid input: ${err.message}`;
             }
-            const message = err instanceof Error ? err.message : String(err);
+            const message = errorMessage(err);
             return `Tool "${plugin.toolName}" execution failed: ${message}`;
           }
         },

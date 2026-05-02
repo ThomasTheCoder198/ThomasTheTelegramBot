@@ -22,6 +22,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NODE_OPTIONS="--enable-source-maps"
 
+RUN mkdir -p /app/data && chown node:node /app/data
+
 USER node
 
 COPY --chown=node:node --from=build /app/node_modules ./node_modules

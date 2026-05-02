@@ -5,8 +5,12 @@ services:
       dockerfile: Dockerfile
     image: llm-telegram-bot:latest
     container_name: llm-telegram-bot
+    ports:
+      - "${GCHAT_OAUTH_PORT:-4085}:${GCHAT_OAUTH_PORT:-4085}"
     env_file:
       - .env
+    volumes:
+      - ./data:/app/data
     restart: unless-stopped
     init: true
     logging:

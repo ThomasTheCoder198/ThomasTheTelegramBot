@@ -1,6 +1,7 @@
 import { Exa } from "exa-js";
 import { z } from "zod";
 import { config } from "../config.js";
+import { errorMessage } from "../utils.js";
 
 export const toolName = "web_search";
 
@@ -20,10 +21,10 @@ export const toolSchema = z.object({
   numResults: z
     .number()
     .int()
-    .min(4)
+    .min(1)
     .max(10)
     .optional()
-    .describe("Number of results to return (1-10). Defaults to 5."),
+    .describe("Number of results to return (1-10). Defaults to 10."),
 });
 
 export type WebSearchInput = z.infer<typeof toolSchema>;
@@ -99,9 +100,12 @@ export async function execute(input: WebSearchInput): Promise<string> {
     const response = await exa.searchAndContents(enrichedQuery, searchOptions);
     const results = (response.results ?? []) as ExaResultLike[];
     console.log(`[web_search] got ${results.length} result(s)`);
+    results.forEach((r, i) => {
+      console.log(`[web_search]   [${i + 1}] ${r.title ?? "(no title)"} — ${r.url ?? "(no url)"}`);
+    });
     return formatResults(results);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     console.error(`[web_search] failed: ${message}`);
     return `Web search is currently unavailable. Reason: ${message}`;
   }

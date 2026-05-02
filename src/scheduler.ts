@@ -1,10 +1,18 @@
 import cron from "node-cron";
 import type { AgentCore } from "./agent/core.js";
+import { TELEGRAM_MAX_MESSAGE_CHARS, TIMEZONE } from "./constants.js";
+import { gchatMorningCheck } from "./gchat/scheduler.js";
+import {
+  buildCommandText,
+  SCHEDULER_FAILED_PREFIX,
+  SCHEDULER_FAILED_SUFFIX,
+  SCHEDULER_NO_RESPONSE,
+} from "./prompts.js";
 import type { TelegramClient } from "./telegram/client.js";
-import { buildCommandText, markdownToTelegramHtml } from "./telegram/handler.js";
+import { markdownToTelegramHtml } from "./telegram/handler.js";
+import { clampText, errorMessage } from "./utils.js";
 
 const SCHEDULED_COMMANDS = ["/briefing"] as const;
-const TELEGRAM_MAX_MESSAGE_CHARS = 4096;
 
 export async function runScheduledCommands(
   telegram: TelegramClient,
@@ -18,21 +26,23 @@ export async function runScheduledCommands(
     try {
       void telegram.sendChatAction(chatId, "typing").catch(() => {});
       const result = await agent.processMessage(chatId, prompt, {});
-      const text = result.text.trim() || "No response received.";
+      const text = result.text.trim() || SCHEDULER_NO_RESPONSE;
       const html = markdownToTelegramHtml(
-        text.length > TELEGRAM_MAX_MESSAGE_CHARS
-          ? text.slice(0, TELEGRAM_MAX_MESSAGE_CHARS - 1) + "…"
-          : text,
+        clampText(text, TELEGRAM_MAX_MESSAGE_CHARS),
       );
       await telegram.sendMessage(chatId, html, { parse_mode: "HTML" });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorMessage(err);
       console.error(`[scheduler] ${command} failed: ${msg}`);
       await telegram
-        .sendMessage(chatId, `[Scheduler] ${command} thất bại: ${msg}`)
+        .sendMessage(chatId, `${SCHEDULER_FAILED_PREFIX}${command}${SCHEDULER_FAILED_SUFFIX}${msg}`)
         .catch(() => {});
     }
   }
+
+  await gchatMorningCheck(telegram, agent, chatId).catch((err) => {
+    console.error(`[scheduler] gchatMorningCheck failed: ${errorMessage(err)}`);
+  });
 }
 
 export function startScheduler(
@@ -44,9 +54,9 @@ export function startScheduler(
   cron.schedule(
     cronExpression,
     () => void runScheduledCommands(telegram, agent, chatId),
-    { timezone: "Asia/Ho_Chi_Minh" },
+    { timezone: TIMEZONE },
   );
   console.info(
-    `[scheduler] scheduled commands registered — cron="${cronExpression}" tz=Asia/Ho_Chi_Minh chatId=${chatId}`,
+    `[scheduler] scheduled commands registered — cron="${cronExpression}" tz=${TIMEZONE} chatId=${chatId}`,
   );
 }

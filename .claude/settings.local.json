@@ -9,7 +9,12 @@
       "WebFetch(domain:vksndlaichau.gov.vn)",
       "WebFetch(domain:e.vnexpress.net)",
       "WebFetch(domain:www.postman.com)",
-      "WebFetch(domain:phatnguoi.app)"
+      "WebFetch(domain:phatnguoi.app)",
+      "Bash(openspec list *)",
+      "Bash(rtk ls *)",
+      "Bash(npm install *)",
+      "Bash(rtk npm *)",
+      "Bash(node -e \"const {google} = require\\('googleapis'\\); const c = google.chat\\({version:'v1'}\\); console.log\\(typeof c.spaces.list, typeof c.spaces.messages.list\\);\")"
     ]
   }
 }

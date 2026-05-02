@@ -1,3 +1,5 @@
+import { errorMessage } from "../utils.js";
+
 export interface TelegramUser {
   id: number;
   is_bot: boolean;
@@ -126,7 +128,7 @@ export class TelegramClient {
         body: JSON.stringify(payload),
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       throw new TelegramApiError(method, `network error: ${message}`);
     }
 

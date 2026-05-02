@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { errorMessage } from "../utils.js";
 
 export const toolName = "github_trending";
 
@@ -120,7 +121,7 @@ export async function execute(input: GitHubTrendingInput): Promise<string> {
     console.log(`[github_trending] parsed ${repos.length} repos`);
     return formatRepos(repos);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
     console.error(`[github_trending] failed: ${msg}`);
     return `Failed to fetch GitHub trending: ${msg}`;
   }

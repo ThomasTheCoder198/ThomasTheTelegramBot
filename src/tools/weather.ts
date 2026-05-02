@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { LOCALE } from "../constants.js";
+import { errorMessage } from "../utils.js";
 
 export const toolName = "weather";
 
@@ -107,7 +109,7 @@ function formatOutput(data: WeatherData): string {
     const dayName =
       i === 0
         ? "Hôm nay"
-        : date.toLocaleDateString("vi-VN", { weekday: "short" });
+        : date.toLocaleDateString(LOCALE, { weekday: "short" });
     lines.push(
       `   ${dayName}: ${data.daily.minTemps[i]}°C - ${data.daily.maxTemps[i]}°C`,
     );
@@ -122,7 +124,7 @@ export async function execute(input: WeatherInput): Promise<string> {
     const data = await fetchWeather();
     return formatOutput(data);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     console.error(`[weather] failed: ${message}`);
     return `Thời tiết hiện không khả dụng. Lý do: ${message}`;
   }

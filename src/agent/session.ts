@@ -6,7 +6,7 @@ export interface Session {
   lastActivity: number;
 }
 
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
 export class SessionManager {
   private readonly sessions = new Map<number, Session>();

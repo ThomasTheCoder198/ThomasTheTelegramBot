@@ -10,7 +10,10 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test:scheduler": "node --env-file=.env --import tsx scripts/test-scheduler.ts"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:scheduler": "node --env-file=.env --import tsx scripts/test-scheduler.ts",
+    "test:gchat": "node --env-file=.env --import tsx scripts/test-gchat.ts"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -19,6 +22,7 @@
     "@openrouter/ai-sdk-provider": "^0.4.5",
     "ai": "^4.3.16",
     "exa-js": "^1.5.13",
+    "googleapis": "^171.4.0",
     "marked": "^18.0.2",
     "node-cron": "^4.2.1",
     "zod": "^3.23.8"
@@ -27,6 +31,7 @@
     "@types/node": "^20.14.10",
     "@types/node-cron": "^3.0.11",
     "tsx": "^4.16.2",
-    "typescript": "^5.5.3"
+    "typescript": "^5.5.3",
+    "vitest": "^4.1.5"
   }
 }

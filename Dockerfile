@@ -9,9 +9,9 @@ RUN if [ -f package-lock.json ]; then npm ci; \
     else npm install; \
     fi
 
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
-RUN npm run build
+RUN NODE_OPTIONS="--max-old-space-size=4096" npm run build:docker
 
 RUN npm prune --omit=dev
 

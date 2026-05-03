@@ -1,12 +1,6 @@
 import type { AgentCore } from "../agent/core.js";
 import { TELEGRAM_MAX_MESSAGE_CHARS } from "../constants.js";
-import {
-  buildSummaryPrompt,
-  GCHAT_SUMMARY_FAILED_PREFIX,
-  NO_NEW_MESSAGES_TEXT,
-  TOKEN_EXPIRED_TEXT,
-  type GroupedMessages,
-} from "../prompts.js";
+import { NO_NEW_MESSAGES_TEXT, TOKEN_EXPIRED_TEXT, type GroupedMessages } from "../prompts.js";
 import type { TelegramClient } from "../telegram/client.js";
 import { markdownToTelegramHtml } from "../telegram/handler.js";
 import { clampText, errorMessage } from "../utils.js";
@@ -17,10 +11,12 @@ import {
   saveGchatState,
 } from "./auth.js";
 import {
+  getSpaceReadTime,
   listMessagesSince,
   listSpaces,
   resolveDisplayNames,
   resolveMyResourceName,
+  formatMessages,
   type GchatMessage,
   type GchatSpace,
 } from "./client.js";
@@ -108,19 +104,43 @@ export async function gchatMorningCheck(
   }
 
   const allMessages: GchatMessage[] = [];
-  const newLastChecked: Record<string, string> = { ...state.lastCheckedAt };
   const runStartedAt = new Date().toISOString();
 
   for (const space of spaces) {
-    const since = state.lastCheckedAt[space.name] ?? fallbackIso;
+    let since: string;
+    let usedReadState = false;
+    try {
+      const readTime = await getSpaceReadTime(auth, space.name);
+      if (readTime) {
+        since = readTime;
+        usedReadState = true;
+        console.log(
+          `[gchat-scheduler] space="${space.displayName}" using readTime=${since} (true unread)`,
+        );
+      } else {
+        since = state.lastCheckedAt[space.name] ?? fallbackIso;
+        console.log(
+          `[gchat-scheduler] space="${space.displayName}" no read state, using saved since=${since}`,
+        );
+      }
+    } catch (err) {
+      const msg = errorMessage(err);
+      since = state.lastCheckedAt[space.name] ?? fallbackIso;
+      console.warn(
+        `[gchat-scheduler] getSpaceReadTime failed for ${space.displayName}, using fallback: ${msg}`,
+      );
+    }
+
     try {
       const msgs = await listMessagesSince(auth, space, since);
       if (msgs.length > 0) {
         allMessages.push(...msgs);
-        const newest = msgs[msgs.length - 1].createTime;
-        newLastChecked[space.name] = newest;
-      } else {
-        newLastChecked[space.name] = runStartedAt;
+        if (!usedReadState) {
+          const newest = msgs[msgs.length - 1].createTime;
+          state.lastCheckedAt[space.name] = newest;
+        }
+      } else if (!usedReadState) {
+        state.lastCheckedAt[space.name] = runStartedAt;
       }
     } catch (err) {
       const msg = errorMessage(err);
@@ -137,7 +157,6 @@ export async function gchatMorningCheck(
   if (allMessages.length === 0) {
     console.log(`[gchat-scheduler] no new messages across all spaces`);
     await telegram.sendMessage(chatId, NO_NEW_MESSAGES_TEXT).catch(() => {});
-    state.lastCheckedAt = newLastChecked;
     await saveGchatState(state);
     return;
   }
@@ -154,7 +173,6 @@ export async function gchatMorningCheck(
       `[gchat-scheduler] all messages were from self, nothing to summarize`,
     );
     await telegram.sendMessage(chatId, NO_NEW_MESSAGES_TEXT).catch(() => {});
-    state.lastCheckedAt = newLastChecked;
     await saveGchatState(state);
     return;
   }
@@ -184,33 +202,9 @@ export async function gchatMorningCheck(
     }
   }
 
-  const summaryPrompt = buildSummaryPrompt(grouped);
-  console.log(
-    `[gchat-scheduler] sending summary prompt to LLM promptLength=${summaryPrompt.length}`,
-  );
-  try {
-    void telegram.sendChatAction(chatId, "typing").catch(() => {});
-    const result = await agent.processMessage(chatId, summaryPrompt, {});
-    const summary = result.text.trim();
-    console.log(
-      `[gchat-scheduler] LLM summary received length=${summary.length}`,
-    );
-    if (summary.length > 0) {
-      const html = markdownToTelegramHtml(
-        clampText(summary, TELEGRAM_MAX_MESSAGE_CHARS),
-      );
-      await telegram
-        .sendMessage(chatId, html, { parse_mode: "HTML" })
-        .catch(() => {});
-    }
-  } catch (err) {
-    const msg = errorMessage(err);
-    console.error(`[gchat] summary generation failed: ${msg}`);
-    await telegram
-      .sendMessage(chatId, `${GCHAT_SUMMARY_FAILED_PREFIX}${msg}`)
-      .catch(() => {});
-  }
+  const formatted = formatMessages(grouped);
+  const html = markdownToTelegramHtml(clampText(formatted, TELEGRAM_MAX_MESSAGE_CHARS));
+  await telegram.sendMessage(chatId, html, { parse_mode: "HTML" }).catch(() => {});
 
-  state.lastCheckedAt = newLastChecked;
   await saveGchatState(state);
 }

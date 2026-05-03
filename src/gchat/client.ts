@@ -1,7 +1,36 @@
 import type { OAuth2Client } from "google-auth-library";
 import { google, type chat_v1 } from "googleapis";
 import { GCHAT_PAGE_SIZE } from "../constants.js";
+import type { GroupedMessages } from "../prompts.js";
 import { errorMessage } from "../utils.js";
+
+export function formatMessages(grouped: GroupedMessages[]): string {
+  const lines: string[] = [];
+
+  for (const group of grouped) {
+    lines.push("───────────");
+    lines.push("");
+    lines.push(`📬 **${group.space.displayName.toUpperCase()}**`);
+    lines.push("");
+
+    for (const msg of group.messages) {
+      const dt = new Date(msg.createTime);
+      const date = dt.toLocaleDateString("vi-VN", {
+        day: "2-digit",
+        month: "2-digit",
+      });
+      const time = dt.toLocaleTimeString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      lines.push(`• **${msg.senderName}** | ⏰ ${time} ${date} `);
+      lines.push(`💬 "${msg.text}"`);
+      lines.push("");
+    }
+  }
+
+  return lines.join("\n").trim();
+}
 
 export interface GchatSpace {
   /** Resource name, e.g. "spaces/AAA..." */
@@ -96,6 +125,9 @@ export async function listMessagesSince(
         m.sender?.displayName ?? m.sender?.name ?? "Unknown sender";
       const senderResourceName = m.sender?.name ?? "";
       const text = typeof m.text === "string" ? m.text : "";
+      console.log(
+        `[gchat-client] message senderResourceName=${senderResourceName}, senderDisplayName=${m.sender?.displayName}`,
+      );
       if (text.length === 0) continue;
       messages.push({
         name: m.name,
@@ -116,49 +148,73 @@ export async function listMessagesSince(
   return messages;
 }
 
-/**
- * Resolve sender resource names to human-readable display names by fetching
- * the space membership list. Returns a Map from resource name to display name.
- * Only entries matching `senderResourceNames` are included.
- * Falls back to `#` + last 6 digits for empty display names.
- */
 export async function resolveDisplayNames(
   auth: OAuth2Client,
-  spaceName: string,
+  _spaceName: string,
   senderResourceNames: Set<string>,
 ): Promise<Map<string, string>> {
-  const chat = buildChatClient(auth);
   const nameMap = new Map<string, string>();
 
-  try {
-    const res = await chat.spaces.members.list({
-      parent: spaceName,
-      pageSize: GCHAT_PAGE_SIZE,
-    });
-    const members = res.data.memberships ?? [];
-    for (const membership of members) {
-      const memberName = membership.member?.name;
-      if (typeof memberName !== "string") continue;
-      if (!senderResourceNames.has(memberName)) continue;
+  if (senderResourceNames.size === 0) return nameMap;
 
-      const displayName = membership.member?.displayName;
-      if (typeof displayName === "string" && displayName.length > 0) {
-        nameMap.set(memberName, displayName);
-      } else {
-        // Fallback: # + last 6 digits of resource name
-        nameMap.set(memberName, `#${memberName.slice(-6)}`);
-      }
+  const senderArray = Array.from(senderResourceNames);
+  console.log(
+    `[gchat-client] resolveDisplayNames: looking up ${senderArray.length} senders via People API`,
+  );
+
+  const resolved = await resolveViaPeopleApi(auth, senderArray);
+  for (const [key, value] of resolved) {
+    nameMap.set(key, value);
+  }
+
+  for (const senderName of senderArray) {
+    if (!nameMap.has(senderName)) {
+      console.log(
+        `[gchat-client] no name found for ${senderName}, using fallback`,
+      );
+      nameMap.set(senderName, `#${senderName.slice(-6)}`);
     }
-  } catch (err) {
-    const msg = errorMessage(err);
-    console.error(
-      `[gchat-client] resolveDisplayNames failed space="${spaceName}": ${msg}`,
-    );
   }
 
   console.log(
-    `[gchat-client] resolveDisplayNames space="${spaceName}" resolved=${nameMap.size}`,
+    `[gchat-client] resolveDisplayNames final: ${Array.from(nameMap.values()).join(", ")}`,
   );
+  return nameMap;
+}
+
+async function resolveViaPeopleApi(
+  auth: OAuth2Client,
+  senderResourceNames: string[],
+): Promise<Map<string, string>> {
+  const nameMap = new Map<string, string>();
+
+  for (const sender of senderResourceNames) {
+    if (!sender.startsWith("users/") && !sender.startsWith("people/")) continue;
+
+    const personId = sender.replace(/^(users|people)\//, "");
+    if (!personId) continue;
+
+    try {
+      const people = google.people({ version: "v1", auth });
+      const res = await people.people.get({
+        resourceName: `people/${personId}`,
+        personFields: "names",
+      });
+      console.log(
+        `[gchat-client] People API response for ${personId}: ${JSON.stringify(res.data)}`,
+      );
+      const person = res.data;
+      const name = person.names?.[0]?.displayName;
+      if (name) {
+        nameMap.set(sender, name);
+      }
+    } catch (err) {
+      console.error(
+        `[gchat-client] People API error for ${personId}: ${errorMessage(err)}`,
+      );
+    }
+  }
+
   return nameMap;
 }
 
@@ -180,15 +236,50 @@ export async function resolveMyResourceName(
     });
     const peopleResourceName = res.data.resourceName;
     if (typeof peopleResourceName !== "string") {
-      console.warn(`[gchat-client] resolveMyResourceName: no resourceName in People API response`);
+      console.warn(
+        `[gchat-client] resolveMyResourceName: no resourceName in People API response`,
+      );
       return null;
     }
     const chatResourceName = peopleResourceName.replace(/^people\//, "users/");
-    console.log(`[gchat-client] resolveMyResourceName: ${peopleResourceName} → ${chatResourceName}`);
+    console.log(
+      `[gchat-client] resolveMyResourceName: ${peopleResourceName} → ${chatResourceName}`,
+    );
     return chatResourceName;
   } catch (err) {
     const msg = errorMessage(err);
     console.error(`[gchat-client] resolveMyResourceName failed: ${msg}`);
+    return null;
+  }
+}
+
+/**
+ * Get the authenticated user's last-read timestamp for a space.
+ * Returns null if no read state exists (meaning all messages are unread).
+ */
+export async function getSpaceReadTime(
+  auth: OAuth2Client,
+  spaceName: string,
+): Promise<string | null> {
+  const chat = buildChatClient(auth);
+  const spaceId = spaceName.replace(/^spaces\//, "");
+  try {
+    const res = await chat.users.spaces.getSpaceReadState({
+      name: `users/me/spaces/${spaceId}/spaceReadState`,
+    });
+    const readTime = res.data.lastReadTime;
+    if (typeof readTime !== "string") {
+      return null;
+    }
+    console.log(
+      `[gchat-client] getSpaceReadTime space=${spaceName} readTime=${readTime}`,
+    );
+    return readTime;
+  } catch (err) {
+    const msg = errorMessage(err);
+    console.error(
+      `[gchat-client] getSpaceReadTime failed space=${spaceName}: ${msg}`,
+    );
     return null;
   }
 }

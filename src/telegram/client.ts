@@ -96,9 +96,7 @@ export class TelegramApiError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Client
-// ---------------------------------------------------------------------------
+
 
 export class TelegramClient {
   private readonly baseUrl: string;

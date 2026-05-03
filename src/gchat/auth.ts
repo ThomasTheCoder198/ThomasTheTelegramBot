@@ -13,7 +13,6 @@ import {
   GCHAT_NOT_CONFIGURED_TEXT,
 } from "../prompts.js";
 import type { TelegramClient } from "../telegram/client.js";
-import { errorMessage } from "../utils.js";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const STATE_FILE = path.join(DATA_DIR, "gchat-state.json");
@@ -22,7 +21,10 @@ const SCOPES = [
   "https://www.googleapis.com/auth/chat.spaces.readonly",
   "https://www.googleapis.com/auth/chat.messages.readonly",
   "https://www.googleapis.com/auth/chat.memberships.readonly",
+  "https://www.googleapis.com/auth/chat.users.readstate.readonly",
   "https://www.googleapis.com/auth/userinfo.profile",
+  "https://www.googleapis.com/auth/contacts",
+  // "https://www.googleapis.com/auth/contacts.readonly",
 ];
 
 const AUTH_TIMEOUT_MS = 5 * 60 * 1000;
@@ -188,11 +190,9 @@ export async function startGchatAuthFlow(
     });
 
     await telegram
-      .sendMessage(
-        chatId,
-        `${GCHAT_AUTH_LINK_PREFIX}${authUrl}`,
-        { disable_web_page_preview: true },
-      )
+      .sendMessage(chatId, `${GCHAT_AUTH_LINK_PREFIX}${authUrl}`, {
+        disable_web_page_preview: true,
+      })
       .catch(() => {});
 
     const code = await codePromise;
@@ -220,14 +220,11 @@ export async function startGchatAuthFlow(
     const isOverride = Boolean(state.refreshToken);
     state.refreshToken = tokens.refresh_token;
     await saveGchatState(state);
-    console.log(`[gchat-auth] refresh token saved to ${STATE_FILE} | override=${isOverride}`);
+    console.log(
+      `[gchat-auth] refresh token saved to ${STATE_FILE} | override=${isOverride}`,
+    );
 
-    await telegram
-      .sendMessage(
-        chatId,
-        GCHAT_CONNECTED_TEXT,
-      )
-      .catch(() => {});
+    await telegram.sendMessage(chatId, GCHAT_CONNECTED_TEXT).catch(() => {});
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[gchat-auth] flow failed: ${msg}`);

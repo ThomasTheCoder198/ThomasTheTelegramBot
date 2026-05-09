@@ -10,7 +10,7 @@ import {
   PLACEHOLDER_TEXT,
   SESSION_RESET_TEXT,
 } from "../prompts.js";
-import { clampText, errorMessage } from "../utils.js";
+import { clampText, errorMessage, splitIntoChunks } from "../utils.js";
 import {
   TelegramApiError,
   type TelegramClient,
@@ -301,7 +301,7 @@ export async function handleUpdate(
 
   const replyText =
     finalText.trim().length > 0
-      ? clampText(finalText.trim(), TELEGRAM_MAX_MESSAGE_CHARS)
+      ? finalText.trim()
       : "I do not have a response for that. Could you rephrase or try again?";
 
   await sendFinal(deps, chatId, placeholderId, replyText);
@@ -313,30 +313,30 @@ async function sendFinal(
   placeholderId: number | null,
   text: string,
 ): Promise<void> {
-  const html = markdownToTelegramHtml(text);
+  const chunks = splitIntoChunks(text, TELEGRAM_MAX_MESSAGE_CHARS);
   const htmlOpts = { parse_mode: "HTML" as const };
-  if (placeholderId !== null) {
-    try {
-      await deps.telegram.editMessageText(
-        chatId,
-        placeholderId,
-        html,
-        htmlOpts,
-      );
-      return;
-    } catch (err) {
-      if (err instanceof TelegramApiError && err.errorCode === 429) {
-      } else if (
-        err instanceof TelegramApiError &&
-        err.message.includes("message is not modified")
-      ) {
-        return;
-      } else {
-        logError("final edit", err);
+
+  for (let i = 0; i < chunks.length; i++) {
+    const html = markdownToTelegramHtml(chunks[i]);
+    if (i === 0 && placeholderId !== null) {
+      try {
+        await deps.telegram.editMessageText(chatId, placeholderId, html, htmlOpts);
+        continue;
+      } catch (err) {
+        if (err instanceof TelegramApiError && err.errorCode === 429) {
+          // fall through to sendMessage
+        } else if (
+          err instanceof TelegramApiError &&
+          err.message.includes("message is not modified")
+        ) {
+          continue;
+        } else {
+          logError("final edit", err);
+        }
       }
     }
+    await deps.telegram
+      .sendMessage(chatId, html, htmlOpts)
+      .catch((err) => logError("final sendMessage", err));
   }
-  await deps.telegram
-    .sendMessage(chatId, html, htmlOpts)
-    .catch((err) => logError("final sendMessage", err));
 }
